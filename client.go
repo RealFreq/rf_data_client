@@ -1,32 +1,30 @@
 package main
 
 import (
-	//"bufio"
+	"fmt"
+	"github.com/spf13/viper"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
-func main() {
+func init() {
+	viper.SetConfigName("config")
+	viper.ReadInConfig()
+}
 
+func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	// Scan frequencies from 30MHz to 1GHz, use 100Hz bin size for FFT
 	// Integration interval is 5 minutes
 	// Gain is 50
-	// TODO Run this for one integration interval (flag -1), wait an hour,
-	//      then run it again
 	cmd := exec.Command("rtl_power", "-f", "30M:1.1G:100", "-i", "5s", "-g", "50", "-1")
-	//stdout, err := cmd.StdoutPipe()
-	//if err != nil {
-	//log.Fatal(err)
-	//}
-	//if err := cmd.Start(); err != nil {
-	//log.Fatal(err)
-	//}
 
 	go func() {
 		sig := <-sigs
@@ -36,21 +34,33 @@ func main() {
 		}
 	}()
 
+	log.Print("Collecting RF data...")
+
 	result, err := cmd.Output()
 	if err != nil {
-		log.Fatalf("Error running command: %s\n", err)
+		log.Fatalf("failed\nError running command: %s\n", err)
 	}
 
-	log.Printf("Result:\n%s\n", result)
+	log.Println("finished")
 
-	//scanner := bufio.NewScanner(stdout)
+	log.Print("Connecting to server...")
 
-	//for scanner.Scan() {
-	//line := scanner.Text()
-	//log.Println(line)
-	//}
+	config := viper.GetStringMap("rf_server")
+	server := fmt.Sprintf("%s:%d", config["host"].(string), config["port"].(int))
 
-	//if err := scanner.Err(); err != nil {
-	//log.Printf("Error reading standard input:", err)
-	//}
+	conn, err := net.Dial("tcp", server)
+	if err != nil {
+		// TODO save data for later upload
+		log.Printf("failed\nError connecting to server: %s\n", err)
+	}
+
+	log.Print("connected")
+
+	log.Println("Starting upload...")
+
+	for _, line := range strings.Split(string(result[:]), "\n") {
+		fmt.Fprintf(conn, line+"\n")
+	}
+
+	log.Println("Upload finished")
 }
